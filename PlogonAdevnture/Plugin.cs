@@ -171,11 +171,14 @@ namespace PlogonAdventure
             MainWindow.info = addonName + " addon is visible? " + addon->IsVisible.ToString();
             if (addonName.Equals("CharacterStatus"))
             {
-                var text = addon->GetNodeById(31)->GetComponent()->GetTextNodeById(2)->GetAsAtkTextNode()->GetText();
-                var textAddress = ((nint)text).ToString("X");
-                MainWindow.info2 = $"textNodeConverted->GetText() is {textAddress}";
-                var actualText = MemoryHelper.ReadStringNullTerminated((nint)text);
-                MainWindow.info3 = $"god help this poor soul: {actualText}";
+                //var text = addon->GetNodeById(31)->GetComponent()->GetTextNodeById(2)->GetAsAtkTextNode()->GetText();
+                var textNode = addon->GetNodeById(4)->GetAsAtkTextNode();
+                var textNodeAddress = ((nint)textNode).ToString("X");
+                MainWindow.info2 = $"text address is: {textNodeAddress}";
+                var text = MemoryHelper.ReadStringNullTerminated((nint)textNode->GetText());
+                var altText = Marshal.PtrToStringAnsi(new IntPtr(textNode->NodeText.StringPtr));
+                var yetAnotherText = textNode->NodeText.ToString();
+                MainWindow.info3 = $"actual text is: {text} or {altText} or {yetAnotherText}";
                 MainWindow.info4 = $"Amount of Nodes found: {nodeDictionary.Count}";
             }
         }

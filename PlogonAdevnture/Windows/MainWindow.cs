@@ -3,6 +3,7 @@ using System.Linq;
 using System.Numerics;
 
 using Dalamud.Interface.Windowing;
+using Dalamud.Interface.Raii;
 using Dalamud.Plugin;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using ImGuiNET;
@@ -43,13 +44,14 @@ public class MainWindow : Window
             ImGui.Text($"{plugin.textNodeDictionary.Count} of {plugin.nodeDictionary.Count} are text nodes");
             DetermineColumnWidth(Table1Column1, Table1Column2, plugin.nodeDictionary, ref coulmn1, ref coulmn2);
             DetermineTextColumnWidth(Table2Column1, Table2Column2, plugin.textNodeDictionary, ref column3, ref column4);
-            ImGui.BeginChild("ScrollArea", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y - 40f), border: true);
-            DrawTable("NodeListTable", Table1Column1, Table1Column2, coulmn1, coulmn2, plugin.nodeDictionary);
-            ImGui.Spacing();
-            ImGui.Separator();
-            ImGui.Spacing();
-            DrawTextTable("TextListTable", Table2Column1, Table2Column2, column3, column4, plugin.textNodeDictionary);
-            ImGui.EndChild();
+            using (var scrollArea = ImRaii.Child("ScrollArea", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y - 40f), border: true))
+            {
+                DrawTable("NodeListTable", Table1Column1, Table1Column2, coulmn1, coulmn2, plugin.nodeDictionary);
+                ImGui.Spacing();
+                ImGui.Separator();
+                ImGui.Spacing();
+                DrawTextTable("TextListTable", Table2Column1, Table2Column2, column3, column4, plugin.textNodeDictionary);
+            }
         }
     }
 
@@ -74,7 +76,7 @@ public class MainWindow : Window
 
     private static void DrawTable(string id, string column1, string column2, float column1Width, float column2Width, IDictionary<uint, NodeType> dictionary)
     {
-        ImGui.BeginTable(id, 2, ImGuiTableFlags.None);
+        using var table = ImRaii.Table(id, 2, ImGuiTableFlags.None);
 
         ImGui.TableSetupColumn(column1, ImGuiTableColumnFlags.WidthFixed, column1Width);
         ImGui.TableSetupColumn(column2, ImGuiTableColumnFlags.WidthFixed, column2Width);
@@ -95,7 +97,6 @@ public class MainWindow : Window
                 ImGui.TableNextRow();
             }
         }
-        ImGui.EndTable();
     }
 
     private static void DetermineTextColumnWidth(string column1, string column2, IDictionary<uint, string?> dictionary1, ref float column1Width, ref float column2Width)
@@ -119,7 +120,7 @@ public class MainWindow : Window
 
     private static void DrawTextTable(string id, string column1, string column2, float column1Width, float column2Width, IDictionary<uint, string?> dictionary)
     {
-        ImGui.BeginTable(id, 2, ImGuiTableFlags.None);
+        using var table = ImRaii.Table(id, 2, ImGuiTableFlags.None);
 
         ImGui.TableSetupColumn(column1, ImGuiTableColumnFlags.WidthFixed, column1Width);
         ImGui.TableSetupColumn(column2, ImGuiTableColumnFlags.WidthFixed, column2Width);
@@ -140,7 +141,6 @@ public class MainWindow : Window
                 ImGui.TableNextRow();
             }
         }
-        ImGui.EndTable();
     }
 
     public override void OnClose()
