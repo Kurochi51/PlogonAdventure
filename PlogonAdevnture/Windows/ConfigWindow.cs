@@ -1,6 +1,7 @@
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using ImGuiNET;
+using System.Numerics;
 
 namespace PlogonAdventure.Windows;
 
@@ -8,14 +9,19 @@ public class ConfigWindow : Window
 {
     private readonly Configuration config;
     private readonly DalamudPluginInterface pluginInterface;
-    private readonly MainWindow mainWindow;
+    private readonly DebugWindow debugWindow;
 
-    public ConfigWindow(DalamudPluginInterface _pluginInterface,Configuration _config, MainWindow _mainWindow) : base("PA Config Window")
+    public ConfigWindow(DalamudPluginInterface _pluginInterface,Configuration _config, DebugWindow _debugWindow) : base("PA Config Window")
     {
         config = _config;
         pluginInterface = _pluginInterface;
-        mainWindow = _mainWindow;
-        Size = new(300, 200);
+        debugWindow = _debugWindow;
+        var resolution = ImGui.GetMainViewport().Size;
+        SizeConstraints = new WindowSizeConstraints
+        {
+            MinimumSize = new Vector2(200, 150),
+            MaximumSize = resolution,
+        };
     }
 
     public override void Draw()
@@ -26,7 +32,7 @@ public class ConfigWindow : Window
         {
             config.isEnabled = enable;
         }
-        DrawCloseButton();
+        DrawButtons();
     }
 
     public override void OnClose()
@@ -34,7 +40,7 @@ public class ConfigWindow : Window
         config.Save(pluginInterface);
     }
 
-    private void DrawCloseButton()
+    private void DrawButtons()
     {
         var originPos = ImGui.GetCursorPos();
         // Place a button in the bottom left
@@ -42,7 +48,7 @@ public class ConfigWindow : Window
         ImGui.SetCursorPosY(ImGui.GetWindowContentRegionMax().Y - ImGui.GetFrameHeight() - 5f);
         if (ImGui.Button("Debug"))
         {
-            mainWindow.Toggle();
+            debugWindow.Toggle();
         }
         ImGui.SetCursorPos(originPos);
         // Place a button in the bottom right + some padding / extra space

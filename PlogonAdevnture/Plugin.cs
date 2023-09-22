@@ -12,6 +12,7 @@ using System;
 using Dalamud.Logging;
 using System.Runtime.InteropServices;
 using System.Linq;
+using static Lumina.Data.Parsing.Uld.NodeData;
 
 namespace PlogonAdventure
 {
@@ -24,6 +25,7 @@ namespace PlogonAdventure
 
         private ConfigWindow ConfigWindow { get; init; }
         private MainWindow MainWindow { get; init; }
+        private DebugWindow DebugWindow { get; init; }
 
         private readonly Configuration config;
         private readonly DalamudPluginInterface pluginInterface;
@@ -32,9 +34,9 @@ namespace PlogonAdventure
         private readonly IAddonLifecycle addonLifecycle;
         private readonly IGameGui gameGui;
 
-        public IDictionary<uint, NodeType> nodeDictionary { get; private set; } = null!;
-        public IDictionary<uint, string?> textNodeDictionary { get; private set; } = null!;
+        public IDictionary<string, NodeType> nodeDictionary { get; private set; } = null!;
         public bool addonAvailable { get; private set; }
+        public int textNodes { get; private set; }
         private readonly string lookupAddonName = "CharacterStatus";
         private readonly string altAddonName = "Character";
 
@@ -51,11 +53,13 @@ namespace PlogonAdventure
             gameGui = _gameGui;
             config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
-            MainWindow = new MainWindow(pluginInterface, config, this);
-            ConfigWindow = new ConfigWindow(pluginInterface, config, MainWindow);
+            DebugWindow = new DebugWindow();
+            ConfigWindow = new ConfigWindow(pluginInterface, config, DebugWindow);
+            MainWindow = new MainWindow(pluginInterface, config, this, DebugWindow);
 
             WindowSystem.AddWindow(ConfigWindow);
             WindowSystem.AddWindow(MainWindow);
+            WindowSystem.AddWindow(DebugWindow);
 
             commandManager.AddHandler(configdName, new CommandInfo(OnCommand)
             {
@@ -72,106 +76,78 @@ namespace PlogonAdventure
         private unsafe void OnPostDraw(AddonEvent eventType, AddonArgs addonInfo)
         {
             var characterStatus = (AtkUnitBase*)gameGui.GetAddonByName(lookupAddonName);
+#pragma warning disable S2589
             if (characterStatus is null || characterStatus->RootNode is null || characterStatus->RootNode->ChildNode is null || characterStatus->UldManager.NodeList is null)
             {
                 return;
             }
+#pragma warning restore S2589
             addonAvailable = true;
-            ProcessAddonNodes(characterStatus, lookupAddonName);
+            var nodeDictionaryAvailable = false;
+            if (nodeDictionary is null || nodeDictionary.Count == 0)
+            {
+                nodeDictionaryAvailable = true;
+                PluginLog.Debug("nodeDictionary being built.");
+                nodeDictionary = new Dictionary<string, NodeType>();
+            }
+            DrawNode(&characterStatus->UldManager, nodeDictionaryAvailable);
+            MainWindow.info = lookupAddonName + " addon is visible? " + characterStatus->IsVisible.ToString();
+            var text = characterStatus->GetNodeById(31)->GetComponent()->GetTextNodeById(2)->GetAsAtkTextNode();
+            var textNode = characterStatus->GetNodeById(4)->GetAsAtkTextNode();
+            var textAddress = ((nint)text).ToString("X");
+            var textNodeAddress = ((nint)textNode).ToString("X");
+            MainWindow.infoLines.Add("textNode address is: " + textNodeAddress + " and text address is: " + textAddress);
+            var actualText = MemoryHelper.ReadStringNullTerminated((nint)text->GetText());
+            var actualTextAgain = MemoryHelper.ReadStringNullTerminated((nint)textNode->GetText());
+            MainWindow.infoLines.Add("random text is: " + actualText + " and " + actualTextAgain);
+            MainWindow.infoLines.Add("Amount of nodes found: " + nodeDictionary.Count);
         }
 
-        private unsafe void OnPreFinalize(AddonEvent eventType, AddonArgs addonInfo)
+        private void OnPreFinalize(AddonEvent eventType, AddonArgs addonInfo)
         {
             addonAvailable = false;
             nodeDictionary?.Clear();
             nodeDictionary = null!;
-            textNodeDictionary?.Clear();
-            textNodeDictionary = null!;
+            textNodes = 0;
         }
 
-        private unsafe void ProcessAddonNodes(AtkUnitBase* addon, string addonName)
+        private unsafe void DrawNode(AtkUldManager* node, bool buildDictionary)
         {
-            var addonNodeList = addon->UldManager.NodeList;
-            var nodeAmount = addon->UldManager.NodeListCount;
-            if (nodeDictionary is null || textNodeDictionary is null || nodeDictionary.Count == 0 || textNodeDictionary.Count == 0)
+            foreach (var index in Enumerable.Range(0, node->NodeListCount))
             {
-                nodeDictionary = new Dictionary<uint, NodeType>();
-                textNodeDictionary = new Dictionary<uint, string?>();
-                for (ushort i = 0; i < nodeAmount; i++)
+                var subNode = node->NodeList[index];
+                if (buildDictionary && !nodeDictionary!.ContainsKey(((nint)subNode).ToString("X")))
                 {
-                    var currentNode = addonNodeList[i];
-                    var currentNodeID = addonNodeList[i]->NodeID;
-                    var nodeType = currentNode->Type;
-                    if (!nodeDictionary.ContainsKey(currentNodeID))
+                    nodeDictionary.Add(((nint)subNode).ToString("X"), subNode->Type);
+                }
+                if ((int)subNode->Type > 1000)
+                {
+                    var componentNode = subNode->GetComponent();
+                    if (componentNode is not null)
                     {
-                        nodeDictionary.Add(currentNodeID, nodeType);
-                    }
-                    if (nodeType == NodeType.Text)
-                    {
-                        var textNode = (AtkTextNode*)currentNode;
-                        var text = MemoryHelper.ReadStringNullTerminated((nint)textNode->GetText());
-                        if (!textNodeDictionary.ContainsKey(currentNodeID))
-                        {
-                            textNodeDictionary.Add(currentNodeID, text);
-                        }
-                    }
-                    if ((int)nodeType < 1000)
-                    {
-                        continue;
-                    }
-                    var componentNode = currentNode->GetAsAtkComponentNode();
-                    var componentUldManager = componentNode->Component->UldManager;
-                    var objectInfo = (AtkUldComponentInfo*)componentUldManager.Objects;
-                    if (objectInfo == null)
-                    {
-                        continue;
-                    }
-                    var childCount = componentUldManager.NodeListCount;
-                    var componentList = componentUldManager.NodeList;
-                    for (var j = 0; j < childCount; j++)
-                    {
-                        var childNode = componentList[j];
-                        var childID = (currentNodeID * 100) + childNode->NodeID;
-                        if (!nodeDictionary.ContainsKey(childID))
-                        {
-                            nodeDictionary.Add(childID, childNode->Type);
-                        }
-                        if (childNode->Type == NodeType.Text)
-                        {
-                            var childTextNode = (AtkTextNode*)childNode;
-                            var childText = MemoryHelper.ReadStringNullTerminated((nint)childTextNode->GetText());
-                            if (!textNodeDictionary.ContainsKey(childID))
-                            {
-                                textNodeDictionary.Add(childID, childText);
-                            }
-                        }
+                        DrawNode(&componentNode->UldManager, buildDictionary);
                     }
                 }
-            }
-            MainWindow.info = addonName + " addon is visible? " + addon->IsVisible.ToString();
-            if (addonName.Equals("CharacterStatus"))
-            {
-                var text = addon->GetNodeById(31)->GetComponent()->GetTextNodeById(2)->GetAsAtkTextNode();
-                var textNode = addon->GetNodeById(4)->GetAsAtkTextNode();
-                var textAddress = ((nint)text).ToString("X");
-                var textNodeAddress = ((nint)textNode).ToString("X");
-                MainWindow.info2 = $"textNode address is: {textNodeAddress} and text address is: {textAddress}";
-                var actualText = MemoryHelper.ReadStringNullTerminated((nint)text->GetText());
-                var actualTextAgain = MemoryHelper.ReadStringNullTerminated((nint)textNode->GetText());
-                MainWindow.info3 = $"random text is: {actualText} and {actualTextAgain}";
-                MainWindow.info4 = $"Amount of Nodes found: {nodeDictionary.Count}";
+
+                if (subNode->Type is NodeType.Text)
+                {
+                    var textNode = (AtkTextNode*)subNode;
+                    textNodes++;
+                    DebugWindow.debugLines.Add(((nint)subNode).ToString("X") + "       " + textNode->NodeText);
+                }
             }
         }
 
-        private unsafe void OnFrameworkUpdate(Framework framework)
+        private void OnFrameworkUpdate(Framework framework)
         {
             MainWindow.IsOpen = config.isEnabled;
+            textNodes = 0;
+            addonAvailable = false;
         }
 
         public void Dispose()
         {
             nodeDictionary = null!;
-            textNodeDictionary = null!;
             WindowSystem.RemoveAllWindows();
             commandManager.RemoveHandler(configdName);
             pluginInterface.UiBuilder.Draw -= DrawUI;
