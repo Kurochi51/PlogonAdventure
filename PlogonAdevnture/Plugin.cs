@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System;
 using Dalamud.Logging;
 using System.Runtime.InteropServices;
+using System.Linq;
 
 namespace PlogonAdventure
 {
@@ -29,21 +30,25 @@ namespace PlogonAdventure
         private readonly Framework framework;
         private readonly ICommandManager commandManager;
         private readonly IAddonLifecycle addonLifecycle;
+        private readonly IGameGui gameGui;
 
         public IDictionary<uint, NodeType> nodeDictionary { get; private set; } = null!;
         public IDictionary<uint, string?> textNodeDictionary { get; private set; } = null!;
         public bool addonAvailable { get; private set; }
         private readonly string lookupAddonName = "CharacterStatus";
+        private readonly string altAddonName = "Character";
 
         public Plugin(DalamudPluginInterface _pluginInterface,
             Framework _framework,
             ICommandManager _commandManager,
-            IAddonLifecycle _addonLifecycle)
+            IAddonLifecycle _addonLifecycle,
+            IGameGui _gameGui)
         {
             pluginInterface = _pluginInterface;
             framework = _framework;
             commandManager = _commandManager;
             addonLifecycle = _addonLifecycle;
+            gameGui = _gameGui;
             config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
             MainWindow = new MainWindow(pluginInterface, config, this);
@@ -60,15 +65,32 @@ namespace PlogonAdventure
             pluginInterface.UiBuilder.Draw += DrawUI;
             pluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
             framework.Update += OnFrameworkUpdate;
-            addonLifecycle.RegisterListener(AddonEvent.PostSetup, lookupAddonName, OnPostSetup);
-            addonLifecycle.RegisterListener(AddonEvent.PreFinalize, lookupAddonName, OnPreFinalize);
+            addonLifecycle.RegisterListener(AddonEvent.PostDraw, altAddonName, OnPostDraw);
+            addonLifecycle.RegisterListener(AddonEvent.PreFinalize, altAddonName, OnPreFinalize);
         }
 
-        private unsafe void OnPostSetup(AddonEvent eventType, AddonArgs addonInfo)
+        private unsafe void OnPostDraw(AddonEvent eventType, AddonArgs addonInfo)
         {
+            var characterStatus = (AtkUnitBase*)gameGui.GetAddonByName(lookupAddonName);
+            if (characterStatus is null || characterStatus->RootNode is null || characterStatus->RootNode->ChildNode is null || characterStatus->UldManager.NodeList is null)
+            {
+                return;
+            }
             addonAvailable = true;
-            var addon = (AtkUnitBase*)addonInfo.Addon;
-            var addonName = addonInfo.AddonName;
+            ProcessAddonNodes(characterStatus, lookupAddonName);
+        }
+
+        private unsafe void OnPreFinalize(AddonEvent eventType, AddonArgs addonInfo)
+        {
+            addonAvailable = false;
+            nodeDictionary?.Clear();
+            nodeDictionary = null!;
+            textNodeDictionary?.Clear();
+            textNodeDictionary = null!;
+        }
+
+        private unsafe void ProcessAddonNodes(AtkUnitBase* addon, string addonName)
+        {
             var addonNodeList = addon->UldManager.NodeList;
             var nodeAmount = addon->UldManager.NodeListCount;
             if (nodeDictionary is null || textNodeDictionary is null || nodeDictionary.Count == 0 || textNodeDictionary.Count == 0)
@@ -88,27 +110,6 @@ namespace PlogonAdventure
                     {
                         var textNode = (AtkTextNode*)currentNode;
                         var text = MemoryHelper.ReadStringNullTerminated((nint)textNode->GetText());
-                        if (string.IsNullOrEmpty(text))
-                        {
-                            text = "Empty text node at " + ((nint)textNode).ToString("X");
-                            var altText = Marshal.PtrToStringAnsi(new IntPtr(textNode->NodeText.StringPtr));
-                            text = text + " possible text? " + altText ?? "null";
-                            /*PluginLog.Warning("Payload information about child node {id}", currentNodeID);
-                            var nodeSeStringBytes = new byte[textNode->NodeText.BufUsed];
-                            for (var byteIndex = 0L; byteIndex < textNode->NodeText.BufUsed; byteIndex++)
-                            {
-                                nodeSeStringBytes[byteIndex] = textNode->NodeText.StringPtr[byteIndex];
-                            }
-                            var seString = SeString.Parse(nodeSeStringBytes);
-                            for (var payloadIndex = 0; payloadIndex < seString.Payloads.Count; payloadIndex++)
-                            {
-                                var payload = seString.Payloads[payloadIndex];
-                                if (payload is TextPayload tp && payload.Type == PayloadType.RawText)
-                                {
-                                    PluginLog.Debug($"cursed information here: {tp.Text}");
-                                }
-                            }*/
-                        }
                         if (!textNodeDictionary.ContainsKey(currentNodeID))
                         {
                             textNodeDictionary.Add(currentNodeID, text);
@@ -130,7 +131,7 @@ namespace PlogonAdventure
                     for (var j = 0; j < childCount; j++)
                     {
                         var childNode = componentList[j];
-                        var childID = (currentNodeID*10)+ childNode->NodeID;
+                        var childID = (currentNodeID * 100) + childNode->NodeID;
                         if (!nodeDictionary.ContainsKey(childID))
                         {
                             nodeDictionary.Add(childID, childNode->Type);
@@ -139,27 +140,6 @@ namespace PlogonAdventure
                         {
                             var childTextNode = (AtkTextNode*)childNode;
                             var childText = MemoryHelper.ReadStringNullTerminated((nint)childTextNode->GetText());
-                            if (string.IsNullOrEmpty(childText))
-                            {
-                                childText = "Empty child text node at " + ((nint)childTextNode).ToString("X");
-                                var altText = Marshal.PtrToStringAnsi(new IntPtr(childTextNode->NodeText.StringPtr));
-                                childText = childText + " possible text? " + altText ?? "null";
-                                /*PluginLog.Warning("Payload information about child node {id}", childID);
-                                var childSeStringBytes = new byte[childTextNode->NodeText.BufUsed];
-                                for (var byteIndex = 0L; byteIndex < childTextNode->NodeText.BufUsed; byteIndex++)
-                                {
-                                    childSeStringBytes[byteIndex] = childTextNode->NodeText.StringPtr[byteIndex];
-                                }
-                                var childSeString = SeString.Parse(childSeStringBytes);
-                                for (var childPIndex = 0; childPIndex < childSeString.Payloads.Count; childPIndex++)
-                                {
-                                    var childPayload = childSeString.Payloads[childPIndex];
-                                    if (childPayload is TextPayload childTP && childPayload.Type == PayloadType.RawText)
-                                    {
-                                        PluginLog.Debug($"child node cursed information here: {childTP.Text}");
-                                    }
-                                }*/
-                            }
                             if (!textNodeDictionary.ContainsKey(childID))
                             {
                                 textNodeDictionary.Add(childID, childText);
@@ -171,25 +151,16 @@ namespace PlogonAdventure
             MainWindow.info = addonName + " addon is visible? " + addon->IsVisible.ToString();
             if (addonName.Equals("CharacterStatus"))
             {
-                //var text = addon->GetNodeById(31)->GetComponent()->GetTextNodeById(2)->GetAsAtkTextNode()->GetText();
+                var text = addon->GetNodeById(31)->GetComponent()->GetTextNodeById(2)->GetAsAtkTextNode();
                 var textNode = addon->GetNodeById(4)->GetAsAtkTextNode();
+                var textAddress = ((nint)text).ToString("X");
                 var textNodeAddress = ((nint)textNode).ToString("X");
-                MainWindow.info2 = $"text address is: {textNodeAddress}";
-                var text = MemoryHelper.ReadStringNullTerminated((nint)textNode->GetText());
-                var altText = Marshal.PtrToStringAnsi(new IntPtr(textNode->NodeText.StringPtr));
-                var yetAnotherText = textNode->NodeText.ToString();
-                MainWindow.info3 = $"actual text is: {text} or {altText} or {yetAnotherText}";
+                MainWindow.info2 = $"textNode address is: {textNodeAddress} and text address is: {textAddress}";
+                var actualText = MemoryHelper.ReadStringNullTerminated((nint)text->GetText());
+                var actualTextAgain = MemoryHelper.ReadStringNullTerminated((nint)textNode->GetText());
+                MainWindow.info3 = $"random text is: {actualText} and {actualTextAgain}";
                 MainWindow.info4 = $"Amount of Nodes found: {nodeDictionary.Count}";
             }
-        }
-
-        private unsafe void OnPreFinalize(AddonEvent eventType, AddonArgs addonInfo)
-        {
-            addonAvailable = false;
-            nodeDictionary?.Clear();
-            nodeDictionary = null!;
-            textNodeDictionary?.Clear();
-            textNodeDictionary = null!;
         }
 
         private unsafe void OnFrameworkUpdate(Framework framework)
@@ -206,8 +177,8 @@ namespace PlogonAdventure
             pluginInterface.UiBuilder.Draw -= DrawUI;
             pluginInterface.UiBuilder.OpenConfigUi -= DrawConfigUI;
             framework.Update -= OnFrameworkUpdate;
-            addonLifecycle.UnregisterListener(AddonEvent.PostSetup, lookupAddonName, OnPostSetup);
-            addonLifecycle.UnregisterListener(AddonEvent.PreFinalize, lookupAddonName, OnPreFinalize);
+            addonLifecycle.UnregisterListener(AddonEvent.PreFinalize, altAddonName, OnPreFinalize);
+            addonLifecycle.UnregisterListener(AddonEvent.PostDraw, altAddonName, OnPostDraw);
         }
 
         private void OnCommand(string command, string args)

@@ -46,7 +46,7 @@ public class MainWindow : Window
             DetermineTextColumnWidth(Table2Column1, Table2Column2, plugin.textNodeDictionary, ref column3, ref column4);
             using (var scrollArea = ImRaii.Child("ScrollArea", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y - 40f), border: true))
             {
-                DrawTable("NodeListTable", Table1Column1, Table1Column2, coulmn1, coulmn2, plugin.nodeDictionary);
+                //DrawTable("NodeListTable", Table1Column1, Table1Column2, coulmn1, coulmn2, plugin.nodeDictionary);
                 ImGui.Spacing();
                 ImGui.Separator();
                 ImGui.Spacing();
