@@ -3,7 +3,6 @@ using System.Linq;
 using System.Numerics;
 
 using Dalamud.Interface.Windowing;
-using Dalamud.Memory;
 using Dalamud.Plugin;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using ImGuiNET;
@@ -41,7 +40,7 @@ public class MainWindow : Window
         var Table2Column2 = "Text";
         if (plugin.addonAvailable)
         {
-            ImGui.Text($"{plugin.textNodeList.Count} of {plugin.nodeList.Count} are text nodes");
+            ImGui.Text($"{plugin.textNodeDictionary.Count} of {plugin.nodeDictionary.Count} are text nodes");
             DetermineColumnWidth(Table1Column1, Table1Column2, plugin.nodeDictionary, ref coulmn1, ref coulmn2);
             DetermineTextColumnWidth(Table2Column1, Table2Column2, plugin.textNodeDictionary, ref column3, ref column4);
             ImGui.BeginChild("ScrollArea", new Vector2(ImGui.GetContentRegionAvail().X, ImGui.GetContentRegionAvail().Y - 40f), border: true);

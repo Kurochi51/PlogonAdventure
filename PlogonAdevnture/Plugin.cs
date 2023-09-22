@@ -8,13 +8,9 @@ using Dalamud.Game.Addon;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using Dalamud.Memory;
 using System.Collections.Generic;
-using System.Linq;
 using System;
 using Dalamud.Logging;
-using static Lumina.Data.Parsing.Uld.NodeData;
 using System.Runtime.InteropServices;
-using Dalamud.Game.Text.SeStringHandling;
-using Dalamud.Game.Text.SeStringHandling.Payloads;
 
 namespace PlogonAdventure
 {
@@ -34,11 +30,9 @@ namespace PlogonAdventure
         private readonly ICommandManager commandManager;
         private readonly IAddonLifecycle addonLifecycle;
 
-        public List<AtkResNode> nodeList { get; set; } = null!;
-        public List<AtkResNode> textNodeList {  get; set; } = null!;
         public IDictionary<uint, NodeType> nodeDictionary { get; private set; } = null!;
         public IDictionary<uint, string?> textNodeDictionary { get; private set; } = null!;
-        public bool addonAvailable { get; set; }
+        public bool addonAvailable { get; private set; }
         private readonly string lookupAddonName = "CharacterStatus";
 
         public Plugin(DalamudPluginInterface _pluginInterface,
@@ -77,30 +71,29 @@ namespace PlogonAdventure
             var addonName = addonInfo.AddonName;
             var addonNodeList = addon->UldManager.NodeList;
             var nodeAmount = addon->UldManager.NodeListCount;
-            if (nodeList is null || textNodeList is null || nodeList.Count == 0 || textNodeList.Count == 0)
+            if (nodeDictionary is null || textNodeDictionary is null || nodeDictionary.Count == 0 || textNodeDictionary.Count == 0)
             {
-                nodeList = new List<AtkResNode>();
                 nodeDictionary = new Dictionary<uint, NodeType>();
-                textNodeList = new List<AtkResNode>();
                 textNodeDictionary = new Dictionary<uint, string?>();
                 for (ushort i = 0; i < nodeAmount; i++)
                 {
                     var currentNode = addonNodeList[i];
                     var currentNodeID = addonNodeList[i]->NodeID;
                     var nodeType = currentNode->Type;
-                    nodeList.Add(*currentNode);
                     if (!nodeDictionary.ContainsKey(currentNodeID))
                     {
                         nodeDictionary.Add(currentNodeID, nodeType);
                     }
                     if (nodeType == NodeType.Text)
                     {
-                        var textNode = currentNode->GetAsAtkTextNode();
-                        textNodeList.Add(*currentNode);
+                        var textNode = (AtkTextNode*)currentNode;
                         var text = MemoryHelper.ReadStringNullTerminated((nint)textNode->GetText());
                         if (string.IsNullOrEmpty(text))
                         {
-                            PluginLog.Warning("Payload information about child node {id}", currentNodeID);
+                            text = "Empty text node at " + ((nint)textNode).ToString("X");
+                            var altText = Marshal.PtrToStringAnsi(new IntPtr(textNode->NodeText.StringPtr));
+                            text = text + " possible text? " + altText ?? "null";
+                            /*PluginLog.Warning("Payload information about child node {id}", currentNodeID);
                             var nodeSeStringBytes = new byte[textNode->NodeText.BufUsed];
                             for (var byteIndex = 0L; byteIndex < textNode->NodeText.BufUsed; byteIndex++)
                             {
@@ -114,7 +107,7 @@ namespace PlogonAdventure
                                 {
                                     PluginLog.Debug($"cursed information here: {tp.Text}");
                                 }
-                            }
+                            }*/
                         }
                         if (!textNodeDictionary.ContainsKey(currentNodeID))
                         {
@@ -138,18 +131,20 @@ namespace PlogonAdventure
                     {
                         var childNode = componentList[j];
                         var childID = (currentNodeID*10)+ childNode->NodeID;
-                        nodeList.Add(*childNode);
                         if (!nodeDictionary.ContainsKey(childID))
                         {
                             nodeDictionary.Add(childID, childNode->Type);
                         }
                         if (childNode->Type == NodeType.Text)
                         {
-                            var childTextNode = childNode->GetAsAtkTextNode();
+                            var childTextNode = (AtkTextNode*)childNode;
                             var childText = MemoryHelper.ReadStringNullTerminated((nint)childTextNode->GetText());
                             if (string.IsNullOrEmpty(childText))
                             {
-                                PluginLog.Warning("Payload information about child node {id}", childID);
+                                childText = "Empty child text node at " + ((nint)childTextNode).ToString("X");
+                                var altText = Marshal.PtrToStringAnsi(new IntPtr(childTextNode->NodeText.StringPtr));
+                                childText = childText + " possible text? " + altText ?? "null";
+                                /*PluginLog.Warning("Payload information about child node {id}", childID);
                                 var childSeStringBytes = new byte[childTextNode->NodeText.BufUsed];
                                 for (var byteIndex = 0L; byteIndex < childTextNode->NodeText.BufUsed; byteIndex++)
                                 {
@@ -163,9 +158,8 @@ namespace PlogonAdventure
                                     {
                                         PluginLog.Debug($"child node cursed information here: {childTP.Text}");
                                     }
-                                }
+                                }*/
                             }
-                            textNodeList.Add(*childNode);
                             if (!textNodeDictionary.ContainsKey(childID))
                             {
                                 textNodeDictionary.Add(childID, childText);
@@ -182,19 +176,15 @@ namespace PlogonAdventure
                 MainWindow.info2 = $"textNodeConverted->GetText() is {textAddress}";
                 var actualText = MemoryHelper.ReadStringNullTerminated((nint)text);
                 MainWindow.info3 = $"god help this poor soul: {actualText}";
-                MainWindow.info4 = $"Amount of Nodes found: {nodeList.Count}";
+                MainWindow.info4 = $"Amount of Nodes found: {nodeDictionary.Count}";
             }
         }
 
         private unsafe void OnPreFinalize(AddonEvent eventType, AddonArgs addonInfo)
         {
             addonAvailable = false;
-            nodeList?.Clear();
-            nodeList = null!;
             nodeDictionary?.Clear();
             nodeDictionary = null!;
-            textNodeList?.Clear();
-            textNodeList = null!;
             textNodeDictionary?.Clear();
             textNodeDictionary = null!;
         }
@@ -206,9 +196,7 @@ namespace PlogonAdventure
 
         public void Dispose()
         {
-            nodeList = null!;
             nodeDictionary = null!;
-            textNodeList = null!;
             textNodeDictionary = null!;
             WindowSystem.RemoveAllWindows();
             commandManager.RemoveHandler(configdName);
